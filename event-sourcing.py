@@ -81,22 +81,28 @@ class CommandModel:
       self.event_store = event_store
       self.entity_store = entity_store
       self.query_model = query_model
-      self.version_counter = 0
+      self.version_counter = {}
+
+  def get_next_version(self, account_id):
+    if account_id not in self.version_counter:
+      self.version_counter[account_id] = 0
+    self.version_counter[account_id] += 1
+    return self.version_counter[account_id]
 
   def execute_command(self, command):
     if isinstance(command, WithdrawalCommand):
       account = self.query_model.rebuild_aggregate(command.account_id)
       if not account.can_withdraw(command.amount):
         raise InsufficientBalanceError(f'Insufficient balance for withdrawal of {command.amount}')
-    self.version_counter += 1
-    command.execute(self.version_counter)
+    new_version = self.get_next_version(command.account_id)
+    command.execute(new_version)
     account = self.query_model.rebuild_aggregate(command.account_id)
-    self.entity_store.update_entity(command.account_id, account.balance, self.version_counter)
+    self.entity_store.update_entity(command.account_id, account.balance, new_version)
 
   def undo_command(self, command):
-    self.version_counter += 1
-    command.undo(self.version_counter)
-    self.entity_store.update_entity(command.account_id, account.balance, self.version_counter)
+    new_version = self.get_next_version(command.account_id)
+    command.undo(new_version)
+    self.entity_store.update_entity(command.account_id, account.balance, new_version)
 
 
 class DepositCommand(Command):
